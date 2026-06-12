@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Default Deny Catch-All Security
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Helper Definitions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // 3. User Profile Fortress Validation
+    function isValidUserProfile(data) {
+      return data.uid is string 
+        && data.uid.size() <= 128
+        && data.theme is string 
+        && (data.theme == 'light' || data.theme == 'dark')
+        && data.logs is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.keys().hasAll(['uid', 'theme', 'logs', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 5;
+    }
+
+    // 4. Firestore Path Security Rules
+    match /users/{userId} {
+      // Validate single document fetches
+      allow get: if isOwner(userId);
+
+      // Disable blanket user collections list queries entirely to prevent query scraping
+      allow list: if false;
+
+      // Create rule
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      // Update rule
+      allow update: if isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == resource.data.uid
+        && incoming().createdAt == resource.data.createdAt
+        && incoming().updatedAt == request.time;
+
+      // Allow profile deletion by owner
+      allow delete: if isOwner(userId);
+    }
+  }
+}
