@@ -17,7 +17,6 @@ import { GoalsLogMap } from "../types.ts";
 interface SettingsModalProps {
   theme: "light" | "dark";
   onThemeChange: (theme: "light" | "dark") => void;
-  onLoadSampleData: () => void;
   onClearAllData: () => void;
   showClearConfirm: boolean;
   onSetShowClearConfirm: (show: boolean) => void;
@@ -34,7 +33,6 @@ interface SettingsModalProps {
 export default function SettingsModal({
   theme,
   onThemeChange,
-  onLoadSampleData,
   onClearAllData,
   showClearConfirm,
   onSetShowClearConfirm,
@@ -315,25 +313,10 @@ export default function SettingsModal({
                 </label>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed -mt-2">
-                Manage temporary logs. Generate default formatted mock data or completely empty your calendar tracking matrix.
+                Manage your recorded timeline data. You can completely empty your calendar tracking matrix.
               </p>
 
               <div className="flex flex-col gap-3">
-                {/* Regenerate Mock Logs */}
-                <button
-                  onClick={() => {
-                    onLoadSampleData();
-                    onClose();
-                  }}
-                  className="flex items-center justify-between w-full px-4 py-3 text-xs font-semibold rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-350 dark:hover:bg-slate-850 cursor-pointer transition-all"
-                >
-                  <span className="flex items-center gap-2.5">
-                    <RefreshCw className="w-4 h-4 text-indigo-400" />
-                    Repopulate Sample Logs
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">[Generate]</span>
-                </button>
-
                 {/* Wipe Logs Toggle */}
                 {showClearConfirm ? (
                   <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-3">

@@ -13,7 +13,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, deleteField, serverTimestamp } from "firebase/firestore";
 import { DayStatus, DayLog, GoalsLogMap, YearStats } from "./types.ts";
 import { 
-  formatDateString, calculateYearStats, generateSampleData 
+  formatDateString, calculateYearStats 
 } from "./utils.ts";
 import { 
   auth, db, loginWithGoogle, logoutUser, handleFirestoreError, OperationType 
@@ -58,6 +58,9 @@ export default function App() {
           const data = snapshot.data();
           if (data.logs) {
             setLogsMap(data.logs);
+            // Cache to local storage to prevent flicker on reload!
+            const storageKey = `goal-tracker-logs-${year}`;
+            localStorage.setItem(storageKey, JSON.stringify(data.logs));
           }
           if (data.theme && (data.theme === "light" || data.theme === "dark")) {
             setTheme(data.theme);
@@ -70,7 +73,7 @@ export default function App() {
     );
 
     return () => unsubscribeSnapshot();
-  }, [user]);
+  }, [user, year]);
 
   // Handle Authentication triggers
   const handleLogin = async () => {
@@ -79,7 +82,41 @@ export default function App() {
       if (loggedUser) {
         const docRef = doc(db, "users", loggedUser.uid);
         const snapshot = await getDoc(docRef);
-        if (!snapshot.exists()) {
+
+        let finalLogs = { ...logsMap };
+        let finalTheme = theme;
+
+        if (snapshot.exists()) {
+          const cloudData = snapshot.data();
+          finalTheme = cloudData.theme || theme;
+
+          // Merge local custom logs with cloud logs
+          const cloudLogs = (cloudData.logs || {}) as Record<string, any>;
+          const merged = { ...cloudLogs };
+          Object.entries(logsMap).forEach(([dateStr, anyLog]) => {
+            const localLog = anyLog as DayLog;
+            const cloudLog = cloudLogs[dateStr] as DayLog | undefined;
+            if (!cloudLog) {
+              merged[dateStr] = localLog;
+            } else {
+              // If exists in both, keep the one that represents an actual action
+              const localMinutes = localLog.focusHours * 60 + localLog.focusMinutes;
+              const cloudMinutes = cloudLog.focusHours * 60 + cloudLog.focusMinutes;
+              if (localLog.status !== DayStatus.UNMARKED && cloudLog.status === DayStatus.UNMARKED) {
+                merged[dateStr] = localLog;
+              } else if (localMinutes > cloudMinutes) {
+                merged[dateStr] = localLog;
+              }
+            }
+          });
+          finalLogs = merged;
+
+          // Upload the merged logs to the cloud so they are synced!
+          await updateDoc(docRef, {
+            logs: finalLogs,
+            updatedAt: serverTimestamp()
+          });
+        } else {
           // Sync existing local logs to cloud on initial join
           await setDoc(docRef, {
             uid: loggedUser.uid,
@@ -88,7 +125,15 @@ export default function App() {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
+          finalLogs = logsMap;
         }
+
+        // Update local states & storage
+        setTheme(finalTheme);
+        setLogsMap(finalLogs);
+
+        const storageKey = `goal-tracker-logs-${year}`;
+        localStorage.setItem(storageKey, JSON.stringify(finalLogs));
       }
     } catch (e) {
       console.error("Authentication login failed:", e);
@@ -98,14 +143,14 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await logoutUser();
+
       // On sign-out, restore current year logs from local storage
       const storageKey = `goal-tracker-logs-${year}`;
       const stored = localStorage.getItem(storageKey);
       if (stored) {
         setLogsMap(JSON.parse(stored));
       } else {
-        const sample = generateSampleData(year);
-        setLogsMap(sample);
+        setLogsMap({});
       }
     } catch (e) {
       console.error("Authentication log out failed:", e);
@@ -153,19 +198,16 @@ export default function App() {
         setLogsMap({});
       }
     } else {
-      const sample = generateSampleData(year);
-      localStorage.setItem(storageKey, JSON.stringify(sample));
-      setLogsMap(sample);
+      setLogsMap({});
     }
   }, [year, user]);
 
   // Save map state in local storage / cloud
   const saveLogsMap = async (newMap: GoalsLogMap) => {
     setLogsMap(newMap);
-    if (!user) {
-      const storageKey = `goal-tracker-logs-${year}`;
-      localStorage.setItem(storageKey, JSON.stringify(newMap));
-    }
+    // Always write back to local cache to keep offline access robust & prevent flicker
+    const storageKey = `goal-tracker-logs-${year}`;
+    localStorage.setItem(storageKey, JSON.stringify(newMap));
   };
 
   const handleSaveDayLog = async (log: DayLog) => {
@@ -214,21 +256,6 @@ export default function App() {
       }
     }
     setShowClearConfirm(false);
-  };
-
-  const handleLoadSampleData = async () => {
-    const sample = generateSampleData(year);
-    await saveLogsMap(sample);
-    if (user) {
-      try {
-        await updateDoc(doc(db, "users", user.uid), {
-          logs: sample,
-          updatedAt: serverTimestamp()
-        });
-      } catch (e) {
-        handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
-      }
-    }
   };
 
   const computedStats = calculateYearStats(logsMap, year);
@@ -425,7 +452,6 @@ export default function App() {
         <SettingsModal
           theme={theme}
           onThemeChange={handleThemeChange}
-          onLoadSampleData={handleLoadSampleData}
           onClearAllData={handleClearAllData}
           showClearConfirm={showClearConfirm}
           onSetShowClearConfirm={setShowClearConfirm}
