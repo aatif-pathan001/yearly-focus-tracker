@@ -7,7 +7,7 @@ import React, { useState, useEffect } from "react";
 import { 
   Calendar, BarChart3, Clock, Sparkles, Plus, RefreshCw, Trash2, 
   HelpCircle, ChevronLeft, ChevronRight, CheckCircle2, Award, Heart,
-  Settings
+  Settings, LogIn
 } from "lucide-react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, deleteField, serverTimestamp } from "firebase/firestore";
@@ -33,15 +33,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"heatmap" | "calendar" | "analytics">("heatmap");
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    return (localStorage.getItem("focus-core-theme") as "light" | "dark") || "dark";
-  });
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   // Subscribe to Authentication state change
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
+      setLoading(false);
     });
     return () => unsubscribeAuth();
   }, []);
@@ -53,17 +53,27 @@ export default function App() {
     const docRef = doc(db, "users", user.uid);
     const unsubscribeSnapshot = onSnapshot(
       docRef,
-      (snapshot) => {
+      async (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
           if (data.logs) {
             setLogsMap(data.logs);
-            // Cache to local storage to prevent flicker on reload!
-            const storageKey = `goal-tracker-logs-${year}`;
-            localStorage.setItem(storageKey, JSON.stringify(data.logs));
           }
           if (data.theme && (data.theme === "light" || data.theme === "dark")) {
             setTheme(data.theme);
+          }
+        } else {
+          // Auto-initialize new user profile in Firestore
+          try {
+            await setDoc(docRef, {
+              uid: user.uid,
+              theme: "dark",
+              logs: {},
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+          } catch (error) {
+            handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}`);
           }
         }
       },
@@ -73,68 +83,12 @@ export default function App() {
     );
 
     return () => unsubscribeSnapshot();
-  }, [user, year]);
+  }, [user]);
 
   // Handle Authentication triggers
   const handleLogin = async () => {
     try {
-      const loggedUser = await loginWithGoogle();
-      if (loggedUser) {
-        const docRef = doc(db, "users", loggedUser.uid);
-        const snapshot = await getDoc(docRef);
-
-        let finalLogs = { ...logsMap };
-        let finalTheme = theme;
-
-        if (snapshot.exists()) {
-          const cloudData = snapshot.data();
-          finalTheme = cloudData.theme || theme;
-
-          // Merge local custom logs with cloud logs
-          const cloudLogs = (cloudData.logs || {}) as Record<string, any>;
-          const merged = { ...cloudLogs };
-          Object.entries(logsMap).forEach(([dateStr, anyLog]) => {
-            const localLog = anyLog as DayLog;
-            const cloudLog = cloudLogs[dateStr] as DayLog | undefined;
-            if (!cloudLog) {
-              merged[dateStr] = localLog;
-            } else {
-              // If exists in both, keep the one that represents an actual action
-              const localMinutes = localLog.focusHours * 60 + localLog.focusMinutes;
-              const cloudMinutes = cloudLog.focusHours * 60 + cloudLog.focusMinutes;
-              if (localLog.status !== DayStatus.UNMARKED && cloudLog.status === DayStatus.UNMARKED) {
-                merged[dateStr] = localLog;
-              } else if (localMinutes > cloudMinutes) {
-                merged[dateStr] = localLog;
-              }
-            }
-          });
-          finalLogs = merged;
-
-          // Upload the merged logs to the cloud so they are synced!
-          await updateDoc(docRef, {
-            logs: finalLogs,
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          // Sync existing local logs to cloud on initial join
-          await setDoc(docRef, {
-            uid: loggedUser.uid,
-            theme,
-            logs: logsMap,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
-          finalLogs = logsMap;
-        }
-
-        // Update local states & storage
-        setTheme(finalTheme);
-        setLogsMap(finalLogs);
-
-        const storageKey = `goal-tracker-logs-${year}`;
-        localStorage.setItem(storageKey, JSON.stringify(finalLogs));
-      }
+      await loginWithGoogle();
     } catch (e) {
       console.error("Authentication login failed:", e);
     }
@@ -143,15 +97,8 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await logoutUser();
-
-      // On sign-out, restore current year logs from local storage
-      const storageKey = `goal-tracker-logs-${year}`;
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        setLogsMap(JSON.parse(stored));
-      } else {
-        setLogsMap({});
-      }
+      setLogsMap({});
+      setTheme("dark");
     } catch (e) {
       console.error("Authentication log out failed:", e);
     }
@@ -159,7 +106,6 @@ export default function App() {
 
   // Keep theme class in sync on the root element
   useEffect(() => {
-    localStorage.setItem("focus-core-theme", theme);
     if (theme === "light") {
       document.documentElement.classList.add("light-theme");
       document.documentElement.classList.remove("dark");
@@ -184,30 +130,9 @@ export default function App() {
     }
   };
 
-  // Load yearly data from local storage on mounted / year change (only when logged out)
-  useEffect(() => {
-    if (user) return;
-
-    const storageKey = `goal-tracker-logs-${year}`;
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        setLogsMap(JSON.parse(stored));
-      } catch (e) {
-        console.error("Failed to parse logs from local storage", e);
-        setLogsMap({});
-      }
-    } else {
-      setLogsMap({});
-    }
-  }, [year, user]);
-
-  // Save map state in local storage / cloud
+  // Save map state in cloud
   const saveLogsMap = async (newMap: GoalsLogMap) => {
     setLogsMap(newMap);
-    // Always write back to local cache to keep offline access robust & prevent flicker
-    const storageKey = `goal-tracker-logs-${year}`;
-    localStorage.setItem(storageKey, JSON.stringify(newMap));
   };
 
   const handleSaveDayLog = async (log: DayLog) => {
@@ -259,6 +184,79 @@ export default function App() {
   };
 
   const computedStats = calculateYearStats(logsMap, year);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+          <span className="text-xs text-slate-400 font-mono">Initializing Sync...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex items-center justify-center p-4 selection:bg-indigo-500 selection:text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.05),transparent_60%)] pointer-events-none" />
+        
+        <div className="relative w-full max-w-md bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-3xl p-8 text-center space-y-8 shadow-2xl">
+          
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-1 bg-indigo-500 blur-md rounded-full" />
+          
+          <div className="flex justify-center">
+            <div className="flex items-center justify-center w-16 h-16 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl text-emerald-400">
+              <Calendar className="w-8 h-8" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="font-display font-extrabold text-2xl tracking-tight text-white uppercase">
+              FOCUS_CORE <span className="text-emerald-500 text-xs font-mono ml-1 font-normal">v2.0</span>
+            </h1>
+            <p className="text-xs text-slate-400 font-display max-w-xs mx-auto">
+              Systematic Achievement & Focus Tracker. Sign in to sync your habits dynamically across all your devices.
+            </p>
+          </div>
+
+          <div className="space-y-3.5 bg-slate-950/40 p-4 rounded-2xl border border-slate-800/40 text-left">
+            <div className="flex items-start gap-3 text-xs">
+              <div className="p-1 rounded-lg bg-indigo-500/10 text-indigo-400 mt-0.5">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <h5 className="font-bold text-slate-200">Real-Time Sync</h5>
+                <p className="text-[11px] text-slate-400">Instantly replicate your progress across desktop, tablet, and mobile.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 text-xs">
+              <div className="p-1 rounded-lg bg-emerald-500/10 text-emerald-400 mt-0.5">
+                <Clock className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <h5 className="font-bold text-slate-200">Obsidian Focus Grid</h5>
+                <p className="text-[11px] text-slate-400">Visualize your productivity patterns in a premium atomic heatmap.</p>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleLogin}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold font-display rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-500/15"
+          >
+            <LogIn className="w-4 h-4" />
+            Sign in with Google
+          </button>
+
+          <div className="pt-2 text-[10px] text-slate-500 font-display">
+            Authorized connection &bull; Firestore secure storage model
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white pb-12">
