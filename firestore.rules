@@ -33,8 +33,7 @@ service cloud.firestore {
         && data.logs is map
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
-        && data.keys().hasAll(['uid', 'theme', 'logs', 'createdAt', 'updatedAt'])
-        && data.keys().size() == 5;
+        && data.keys().hasOnly(['uid', 'theme', 'logs', 'createdAt', 'updatedAt']);
     }
 
     // 4. Firestore Path Security Rules
@@ -57,7 +56,7 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && isValidUserProfile(incoming())
         && incoming().uid == resource.data.uid
-        && incoming().createdAt == resource.data.createdAt
+        && (incoming().createdAt == resource.data.createdAt || incoming().createdAt == request.time)
         && incoming().updatedAt == request.time;
 
       // Allow profile deletion by owner
