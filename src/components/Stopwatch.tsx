@@ -27,7 +27,7 @@ export function FlipDigit({ digit, size = "sm" }: FlipDigitProps) {
       const timer = setTimeout(() => {
         setPrevDigit(digit);
         setIsFlipping(false);
-      }, 500); // 250ms top flip + 250ms bottom flip
+      }, 600); // match animation duration (0.6s)
       return () => clearTimeout(timer);
     }
   }, [digit, prevDigit]);
@@ -56,27 +56,34 @@ export function FlipDigit({ digit, size = "sm" }: FlipDigitProps) {
         </span>
       </div>
 
-      {/* Flipping Top (Old value folding down) */}
+      {/* Flipping Card (Rotates 180 degrees from 0 to -180 around bottom edge of top half) */}
       {isFlipping && (
         <div 
-          className="absolute top-0 left-0 w-full h-1/2 overflow-hidden bg-slate-900 border-b border-slate-950 flex items-end justify-center rounded-t-lg origin-bottom animate-flip-top z-10"
-          style={{ backfaceVisibility: "hidden" }}
+          className="absolute top-0 left-0 w-full h-1/2 origin-bottom z-10 animate-flip-180"
+          style={{ transformStyle: "preserve-3d" }}
         >
-          <span className={`font-mono text-emerald-400 translate-y-1/2 leading-none ${textClasses}`}>
-            {prevDigit}
-          </span>
-        </div>
-      )}
+          {/* Front of the flipping card (shows OLD top half) */}
+          <div 
+            className="absolute inset-0 overflow-hidden bg-slate-900 border-b border-slate-950 flex items-end justify-center rounded-t-lg"
+            style={{ backfaceVisibility: "hidden" }}
+          >
+            <span className={`font-mono text-emerald-400 translate-y-1/2 leading-none ${textClasses}`}>
+              {prevDigit}
+            </span>
+          </div>
 
-      {/* Flipping Bottom (New value unfolding down) */}
-      {isFlipping && (
-        <div 
-          className="absolute bottom-0 left-0 w-full h-1/2 overflow-hidden bg-slate-950 flex items-start justify-center rounded-b-lg origin-top animate-flip-bottom z-10"
-          style={{ backfaceVisibility: "hidden" }}
-        >
-          <span className={`font-mono text-emerald-400 -translate-y-1/2 leading-none ${textClasses}`}>
-            {digit}
-          </span>
+          {/* Back of the flipping card (shows NEW bottom half, rotated 180deg) */}
+          <div 
+            className="absolute inset-0 overflow-hidden bg-slate-950 flex items-start justify-center rounded-b-lg"
+            style={{ 
+              backfaceVisibility: "hidden", 
+              transform: "rotateX(180deg)" 
+            }}
+          >
+            <span className={`font-mono text-emerald-400 -translate-y-1/2 leading-none ${textClasses}`}>
+              {digit}
+            </span>
+          </div>
         </div>
       )}
 

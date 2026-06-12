@@ -92,30 +92,17 @@
 }
 
 /* Flip Clock Styles */
-@keyframes flip-top {
+@keyframes flip-180 {
   0% {
     transform: rotateX(0deg);
   }
   100% {
-    transform: rotateX(-90deg);
+    transform: rotateX(-180deg);
   }
 }
 
-@keyframes flip-bottom {
-  0% {
-    transform: rotateX(90deg);
-  }
-  100% {
-    transform: rotateX(0deg);
-  }
-}
-
-.animate-flip-top {
-  animation: flip-top 0.25s ease-in forwards;
-}
-
-.animate-flip-bottom {
-  animation: flip-bottom 0.25s ease-out 0.25s forwards;
+.animate-flip-180 {
+  animation: flip-180 0.6s cubic-bezier(0.25, 0.8, 0.25, 1.1) forwards;
 }
 
 .flip-digit-perspective {
