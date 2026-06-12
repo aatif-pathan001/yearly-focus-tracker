@@ -31,8 +31,6 @@ service cloud.firestore {
         && data.theme is string 
         && (data.theme == 'light' || data.theme == 'dark')
         && data.logs is map
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp
         && data.keys().hasOnly(['uid', 'theme', 'logs', 'createdAt', 'updatedAt']);
     }
 
@@ -46,7 +44,6 @@ service cloud.firestore {
 
       // Create rule
       allow create: if isOwner(userId)
-        && isValidId(userId)
         && isValidUserProfile(incoming())
         && incoming().uid == userId
         && incoming().createdAt == request.time
