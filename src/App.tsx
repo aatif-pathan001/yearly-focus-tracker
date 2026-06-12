@@ -24,6 +24,7 @@ import MonthGrid from "./components/MonthGrid.tsx";
 import StatsDashboard from "./components/StatsDashboard.tsx";
 import DayEditor from "./components/DayEditor.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
+import Stopwatch from "./components/Stopwatch.tsx";
 
 export default function App() {
   const currentCalendarYear = new Date().getFullYear();
@@ -39,16 +40,42 @@ export default function App() {
 
   // Subscribe to Authentication state change
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    const wasDemo = localStorage.getItem("focus_demo_mode") === "true";
+    if (wasDemo) {
+      setUser({
+        uid: "local-demo",
+        displayName: "Demo User",
+        email: "demo@focuscore.local",
+        photoURL: null,
+      } as any);
       setLoading(false);
+      const savedLogs = localStorage.getItem("focus_demo_logs");
+      if (savedLogs) {
+        try {
+          setLogsMap(JSON.parse(savedLogs));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      const savedTheme = localStorage.getItem("focus_demo_theme");
+      if (savedTheme === "light" || savedTheme === "dark") {
+        setTheme(savedTheme);
+      }
+    }
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      const isCurrentlyDemo = localStorage.getItem("focus_demo_mode") === "true";
+      if (!isCurrentlyDemo) {
+        setUser(firebaseUser);
+        setLoading(false);
+      }
     });
     return () => unsubscribeAuth();
   }, []);
 
   // Sync with Firestore dynamically
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.uid === "local-demo") return;
 
     const docRef = doc(db, "users", user.uid);
     const unsubscribeSnapshot = onSnapshot(
@@ -94,11 +121,41 @@ export default function App() {
     }
   };
 
+  const handleStartDemoMode = () => {
+    localStorage.setItem("focus_demo_mode", "true");
+    setUser({
+      uid: "local-demo",
+      displayName: "Demo User",
+      email: "demo@focuscore.local",
+      photoURL: null,
+    } as any);
+    
+    const savedLogs = localStorage.getItem("focus_demo_logs");
+    if (savedLogs) {
+      try {
+        setLogsMap(JSON.parse(savedLogs));
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setLogsMap({});
+    }
+
+    const savedTheme = localStorage.getItem("focus_demo_theme");
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
+  };
+
   const handleLogout = async () => {
     try {
-      await logoutUser();
+      if (user && user.uid !== "local-demo") {
+        await logoutUser();
+      }
+      localStorage.removeItem("focus_demo_mode");
       setLogsMap({});
       setTheme("dark");
+      setUser(null);
     } catch (e) {
       console.error("Authentication log out failed:", e);
     }
@@ -118,7 +175,7 @@ export default function App() {
   // Synchronize theme modification 
   const handleThemeChange = async (newTheme: "light" | "dark") => {
     setTheme(newTheme);
-    if (user) {
+    if (user && user.uid !== "local-demo") {
       try {
         await updateDoc(doc(db, "users", user.uid), {
           theme: newTheme,
@@ -127,6 +184,8 @@ export default function App() {
       } catch (e) {
         handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
       }
+    } else {
+      localStorage.setItem("focus_demo_theme", newTheme);
     }
   };
 
@@ -138,7 +197,7 @@ export default function App() {
   const handleSaveDayLog = async (log: DayLog) => {
     const updated = { ...logsMap, [log.dateString]: log };
     await saveLogsMap(updated);
-    if (user) {
+    if (user && user.uid !== "local-demo") {
       try {
         await updateDoc(doc(db, "users", user.uid), {
           [`logs.${log.dateString}`]: log,
@@ -147,6 +206,8 @@ export default function App() {
       } catch (e) {
         handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
       }
+    } else {
+      localStorage.setItem("focus_demo_logs", JSON.stringify(updated));
     }
     setActiveDate(null);
   };
@@ -155,7 +216,7 @@ export default function App() {
     const updated = { ...logsMap };
     delete updated[dateString];
     await saveLogsMap(updated);
-    if (user) {
+    if (user && user.uid !== "local-demo") {
       try {
         await updateDoc(doc(db, "users", user.uid), {
           [`logs.${dateString}`]: deleteField(),
@@ -164,13 +225,15 @@ export default function App() {
       } catch (e) {
         handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
       }
+    } else {
+      localStorage.setItem("focus_demo_logs", JSON.stringify(updated));
     }
     setActiveDate(null);
   };
 
   const handleClearAllData = async () => {
     await saveLogsMap({});
-    if (user) {
+    if (user && user.uid !== "local-demo") {
       try {
         await updateDoc(doc(db, "users", user.uid), {
           logs: {},
@@ -179,6 +242,8 @@ export default function App() {
       } catch (e) {
         handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`);
       }
+    } else {
+      localStorage.setItem("focus_demo_logs", JSON.stringify({}));
     }
     setShowClearConfirm(false);
   };
@@ -241,14 +306,24 @@ export default function App() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold font-display rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-500/15"
-          >
-            <LogIn className="w-4 h-4" />
-            Sign in with Google
-          </button>
+          <div className="flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={handleLogin}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold font-display rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-500/15"
+            >
+              <LogIn className="w-4 h-4" />
+              Sign in with Google
+            </button>
+
+            <button
+              type="button"
+              onClick={handleStartDemoMode}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-750 active:scale-[0.98] text-slate-200 text-xs font-bold font-display rounded-xl cursor-pointer transition-all border border-slate-700 shadow-sm"
+            >
+              Continue in Local Demo Mode
+            </button>
+          </div>
 
           <div className="pt-2 text-[10px] text-slate-500 font-display">
             Authorized connection &bull; Firestore secure storage model
@@ -461,6 +536,12 @@ export default function App() {
           year={year}
         />
       )}
+
+      {/* Floating Stopwatch Widget */}
+      <Stopwatch
+        logsMap={logsMap}
+        onSaveLog={handleSaveDayLog}
+      />
     </div>
   );
 }
