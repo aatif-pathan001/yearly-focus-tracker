@@ -1,0 +1,6 @@
+{
+  "name": "Yearly Focus & Goal Tracker",
+  "description": "Visualize and track your daily focus duration and goal achievements with a bird's-eye view of the entire year.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

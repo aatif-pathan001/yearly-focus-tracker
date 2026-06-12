@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Data structure containing authenticated profiles, system preferences, and focus calendar records.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique target Firebase Auth UID."
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark"],
+          "description": "Selected interface visualization theme."
+        },
+        "logs": {
+          "type": "object",
+          "description": "Mapped dictionary tracking calendar status logs."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server UTC timestamp of last synced edit."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Database insertion timestamp."
+        }
+      },
+      "required": ["uid", "theme", "logs", "updatedAt", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Single synced personal log matrix per authenticated device session."
+    }
+  }
+}
