@@ -91,3 +91,35 @@
   animation: pulse-subtle 1.5s infinite var(--ease-elastic);
 }
 
+/* Flip Clock Styles */
+@keyframes flip-top {
+  0% {
+    transform: rotateX(0deg);
+  }
+  100% {
+    transform: rotateX(-90deg);
+  }
+}
+
+@keyframes flip-bottom {
+  0% {
+    transform: rotateX(90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+.animate-flip-top {
+  animation: flip-top 0.25s ease-in forwards;
+}
+
+.animate-flip-bottom {
+  animation: flip-bottom 0.25s ease-out 0.25s forwards;
+}
+
+.flip-digit-perspective {
+  perspective: 300px;
+}
+
+
